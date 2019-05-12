@@ -7,33 +7,44 @@
 #include <stack>
 #include <algorithm>
 #include <exception>
+#include <stdio.h>
+#include <string.h>
 
 using namespace std;
 
 #define PAGE_SIZE 4096          // 4kb
 #define MAX_DIGIT 3             // # of max digit - 100 being max value
 #define TEMP_FILE_NAME "temp"   // default temporary filename
+#define FINAL_OUTPUT_FILE_NAME "sorted_age.txt" // final output filename
 
 
+
+/* Function declarations */
 
 stack<string> partition_file_to(ifstream &, int );
+
 void merge(stack <string> &, stack <string> &);
+
 void merge_write_to_stream(ifstream &, ifstream &, ofstream &);
+
 vector<int> parse(ifstream &, int);
+
 void print_debug(int pass_id, int buffer_count, int temp_files_count);
 
 
 
 int file_no = 0; // incremented upon creation of new file
-int pass_count = 1;
+int pass_count = 0; // incremented upon each pass of merge.
 
 
 
 int main(int argc, char * argv[])
 {
 
+    // 2 static stack for input and output.
     stack<string> temp_file_names;
     stack<string> temp_file_names_2;
+
     ifstream source(argv[argc - 1], ifstream::in);
 
     cout << "Sorting "<< argv[argc - 1] << " ...." << endl;
@@ -73,7 +84,8 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
 
     // the last file in the stack is the sorted output file
     if(input_files.size() == 1){
-        cout << "\nsorting done. \nsorted data saved to: " << input_files.top() << endl;
+        rename(input_files.top().c_str(), FINAL_OUTPUT_FILE_NAME);
+        cout << "\nsorting done. \nsorted data saved to: " << FINAL_OUTPUT_FILE_NAME << endl;
         input_files.pop();
         return;
     }
@@ -82,8 +94,6 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
    
     while( input_files.size() > 1){
 
-    
-        //string output_fname = generate_filename();
         ofstream output;
         output_fname = get_new_filename();
         output.open(output_fname, ofstream::out | ofstream::trunc);
@@ -116,40 +126,51 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
 
 /* parse file content into int vector.*/
 /* NOTE: content is limited by the size of page. */
+/* an integer vector is returned that contains */
 vector <int> parse(ifstream &input, int page_size){
 
-    int count = 0;
+
+    int character_count = 0;
 
     vector <int> buffer;
-    buffer.reserve(page_size);
 
+    // reserve vector with capacity page_size
+    // enchances performance 
+    buffer.reserve( page_size );
+
+    // input character placeholder
     char c;
+
     string string_buffer("");
 
+    // reads character bytes per bytes.
     while(true){
 
         input.get(c);
-        count ++;
+        character_count ++;
 
-        if (input.eof()  || (c == ',' && count >= (PAGE_SIZE - MAX_DIGIT)) ) 
+        // when reading has reached either EOF or Page limit, break out of this loop
+        if (input.eof()  || (c == ',' && character_count >= (PAGE_SIZE - MAX_DIGIT)) ) 
         {
             if (!string_buffer.empty()){
                 buffer.push_back(stoi(string_buffer));
             }
             break;
 
-        }else if(c == ','){
-
+        // integer is added to buffer.
+        }else if(c == ','){ 
             if (!string_buffer.empty()){
                 buffer.push_back(stoi(string_buffer));
+                string_buffer.clear();
             }
 
-            string_buffer.clear();
-
-        }else if(c >= 48 && c <= 57 ){
+        // filter numerical character
+        }else if(c >= 48 && c <= 57 ){ 
 
             string_buffer.push_back(c);
 
+        }else{
+            cout << "Input Error: invalid input character" << endl;
         }
     }
 
@@ -163,6 +184,9 @@ void merge_write_to_stream(ifstream & input1, ifstream & input2, ofstream & outp
 
     vector<int> buffer_in_1 = parse(input1, PAGE_SIZE);
     vector<int> buffer_in_2 = parse(input2, PAGE_SIZE);
+
+    vector<char> buffer_out;
+    buffer_out.reserve(PAGE_SIZE);
     
     while (true)
     {
@@ -194,7 +218,7 @@ void merge_write_to_stream(ifstream & input1, ifstream & input2, ofstream & outp
             output << buffer_in_2[b2_i] << ',';
             b2_i++;
         }
-        }
+    }
 
         // write the rest of buffer1 into the stream
         while ( true )
@@ -247,7 +271,10 @@ void write_buffer_to_file(vector <int> buffer, ofstream & out_stream){
         out_stream << buffer[i] << ',' ;
     } 
 
+    out_stream.flush();
 }
+
+
 
 stack<string> partition_file_to(ifstream &source, int bytes_count )
 {
