@@ -3,12 +3,12 @@
 #include <fstream>
 #include <array>
 #include <string>
-#include <vector>
 #include <stack>
 #include <algorithm>
 #include <exception>
 #include <stdio.h>
 #include <string.h>
+#include <list>
 
 using namespace std;
 
@@ -27,15 +27,21 @@ void merge(stack <string> &, stack <string> &);
 
 void merge_write_to_stream(ifstream &, ifstream &, ofstream &);
 
-vector<int> parse(ifstream &, int);
+bool parse(ifstream &, list <short int> & buffer, int);
 
 void print_debug(int pass_id, int buffer_count, int temp_files_count);
 
+bool is_buffer_full(list<short> &buffer);
+
+void flush_output_buffer(ofstream &out_stream);
 
 
-int file_no = 0; // incremented upon creation of new file
-int pass_count = 0; // incremented upon each pass of merge.
+    int file_no = 0; // incremented upon creation of new file
+    int pass_count = 0; // incremented upon each pass of merge.
 
+list<short int> output_buffer;
+list<short int> input_buffer_1;
+list<short int> input_buffer_2;
 
 
 int main(int argc, char * argv[])
@@ -73,7 +79,7 @@ void print_debug(int pass_id, int buffer_count, int temp_files_count){
 // generate a semi-random filename
 string get_new_filename(){
     string u("_");
-    return TEMP_FILE_NAME + u + to_string(pass_count) + u + to_string(file_no ++);
+    return TEMP_FILE_NAME + u + "pass" + u + to_string(pass_count) + u + to_string(file_no ++);
 }
 
 
@@ -103,10 +109,8 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
         ifstream input_2(input_files.top());
         input_files.pop();
 
-
         merge_write_to_stream(input_1, input_2, output);
 
-        
         output.close();
         output_files.push(output_fname);
     
@@ -127,16 +131,10 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
 /* parse file content into int vector.*/
 /* NOTE: content is limited by the size of page. */
 /* an integer vector is returned that contains */
-vector <int> parse(ifstream &input, int page_size){
+bool parse(ifstream &input, list <short> & buffer, int page_size){
 
 
     int character_count = 0;
-
-    vector <int> buffer;
-
-    // reserve vector with capacity page_size
-    // enchances performance 
-    buffer.reserve( page_size );
 
     // input character placeholder
     char c;
@@ -155,6 +153,7 @@ vector <int> parse(ifstream &input, int page_size){
             if (!string_buffer.empty()){
                 buffer.push_back(stoi(string_buffer));
             }
+
             break;
 
         // integer is added to buffer.
@@ -174,102 +173,121 @@ vector <int> parse(ifstream &input, int page_size){
         }
     }
 
-    return buffer;
+    return !buffer.empty();
+
 }
 
 // merge vector buffer1 and vector buffer 2 and write the sorted output to stream.
 void merge_write_to_stream(ifstream & input1, ifstream & input2, ofstream & output){
+ 
+    // parameters: ifstream, vector buffer, int size
+    parse(input1, input_buffer_1, PAGE_SIZE);
+    parse(input2, input_buffer_2, PAGE_SIZE);
 
-    int b1_i = 0, b2_i = 0;
-
-    vector<int> buffer_in_1 = parse(input1, PAGE_SIZE);
-    vector<int> buffer_in_2 = parse(input2, PAGE_SIZE);
-
-    vector<char> buffer_out;
-    buffer_out.reserve(PAGE_SIZE);
-    
     while (true)
     {
 
-        if (b1_i >= buffer_in_1.size())
-        {
-            buffer_in_1 = parse(input1, PAGE_SIZE);
-            b1_i = 0;
-        }
-
-        if (b2_i >= buffer_in_2.size())
-        {
-            buffer_in_2 = parse(input2, PAGE_SIZE);
-            b2_i = 0;
-        }
-
-        if (buffer_in_1.empty() || buffer_in_2.empty())
-        {
+        if ( input_buffer_1.empty() )
+            parse(input1 ,input_buffer_1 ,PAGE_SIZE);
+        
+        if (input_buffer_2.empty())
+            parse(input2, input_buffer_2, PAGE_SIZE);
+        
+        if (input_buffer_1.empty() || input_buffer_2.empty())
             break;
-        }
 
-        if (buffer_in_1[b1_i] <= buffer_in_2[b2_i])
+        // merge logic
+        if ( input_buffer_1.front() <= input_buffer_2.front() )
         {
-            output << buffer_in_1[b1_i] << ',';
-            b1_i++;
+            output_buffer.push_back(input_buffer_1.front());
+            input_buffer_1.pop_front();
         }
         else
         {
-            output << buffer_in_2[b2_i] << ',';
-            b2_i++;
+            output_buffer.push_back(input_buffer_2.front());
+            input_buffer_2.pop_front();
         }
+
+        // flush buffer when empty
+        if(is_buffer_full(output_buffer))
+            flush_output_buffer(output);
+        
+
     }
 
-        // write the rest of buffer1 into the stream
+        // process the rest of the input file 1
         while ( true )
         {
 
-            if (b1_i >= buffer_in_1.size())
+            if ( input_buffer_1.empty() )
             {
-                buffer_in_1 = parse(input1, PAGE_SIZE);
-                b1_i = 0;
-                
+                bool file_done = parse(input1, input_buffer_1, PAGE_SIZE);
+
+                if( !file_done){
+                    break;
+                }
             }
 
-            if ( buffer_in_1.empty() )
-            {
-                break;
-            }
+            output_buffer.push_back(input_buffer_1.back());
+            input_buffer_1.pop_back();
 
-            output << buffer_in_1[b1_i] << ',';
-            b1_i++;
+            if (is_buffer_full(output_buffer))
+            {
+                flush_output_buffer(output);
+            }
         }
 
-        // write the rest of buffer2 into the stream
+        // process the rest of the input file 2
         while ( true )
         {
 
-            if (b2_i >= buffer_in_2.size())
+            if (input_buffer_2.empty())
             {
-                buffer_in_2 = parse(input2, PAGE_SIZE);
-                b2_i = 0;
+                bool file_done = parse(input2, input_buffer_2, PAGE_SIZE);
+
+                if (!file_done)
+                {
+                    break;
+                }
             }
 
-            if( buffer_in_2.empty() ){
-                break;
-            }
+            output_buffer.push_back(input_buffer_2.front());
+            input_buffer_2.pop_front();
 
-            output << buffer_in_2[b2_i] << ',';
-            b2_i++;
+            if (is_buffer_full(output_buffer))
+            {
+                flush_output_buffer(output);
+            }
         }
 
-        output.flush();
+        flush_output_buffer(output);
 }
 
 
+bool is_buffer_full( list <short> & buffer){
+    return buffer.size()  == (PAGE_SIZE / sizeof(short int)) - 1;
+}
+
+
+void flush_output_buffer(ofstream & out_stream){
+
+    while (!output_buffer.empty())
+    {
+        out_stream << output_buffer.front() << ',';
+        output_buffer.pop_front();
+    }
+
+    out_stream.flush();
+}
 
 
 /* writes the buffer to output stream*/
-void write_buffer_to_file(vector <int> buffer, ofstream & out_stream){
+void write_buffer_to_file(list <short> & buffer, ofstream & out_stream){
 
-    for(int i = 0; i < buffer.size(); i++){
-        out_stream << buffer[i] << ',' ;
-    } 
+    while( !buffer.empty() ){
+        out_stream << buffer.front() << ',';
+        buffer.pop_front();
+    }
 
     out_stream.flush();
 }
@@ -281,7 +299,7 @@ stack<string> partition_file_to(ifstream &source, int bytes_count )
 
     string filename(""); 
    // ofstream output("temp_ ", ofstream::out | ofstream::tr);
-    vector<int> data;
+    list<short> data;
     stack <string> temp_file_names;
 
 
@@ -289,14 +307,14 @@ stack<string> partition_file_to(ifstream &source, int bytes_count )
     // sort the buffer vector
     // generate a uniqe file and write the buffer to the unique file.
     // Note: see parse and get_new_filename implementation for more details.
-    data = parse(source, bytes_count);
+    parse(source, data, bytes_count);
     while (! data.empty() ){
-        sort(data.begin(), data.end());
+        data.sort();
         filename = get_new_filename();    
         ofstream output(filename, ofstream::out | ofstream::trunc);
         write_buffer_to_file(data, output);
         output.close();
-        data = parse(source, PAGE_SIZE);
+        parse(source, data, PAGE_SIZE);
         temp_file_names.push(filename);
     }
 
