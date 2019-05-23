@@ -15,7 +15,8 @@ using namespace std;
 #define PAGE_SIZE 4096          // 4kb
 #define MAX_DIGIT 3             // # of max digit - 100 being max value
 #define TEMP_FILE_NAME "temp"   // default temporary filename
-#define FINAL_OUTPUT_FILE_NAME "sorted_age.txt" // final output filename
+#define DEBUG false
+
 
 
 
@@ -29,38 +30,96 @@ void merge_write_to_stream(ifstream &, ifstream &, ofstream &);
 
 bool parse(ifstream &, list <short int> & buffer, int);
 
-void print_debug(int pass_id, int buffer_count, int temp_files_count);
+void print_status(int pass_id, int buffer_count, int temp_files_count);
 
 bool is_buffer_full(list<short> &buffer);
 
 void flush_output_buffer(ofstream &out_stream);
 
+void delete_temp_files(bool);
 
-    int file_no = 0; // incremented upon creation of new file
-    int pass_count = 0; // incremented upon each pass of merge.
+// counters
+int file_no = 0; // incremented upon creation of new file
+int pass_count = 0; // incremented upon each pass of merge.
+bool mode = !DEBUG;
 
+// buffers
+// each can fill upto 2000 shorts(2bytes each)
+// wich is equivalent to ~4kb
 list<short int> output_buffer;
 list<short int> input_buffer_1;
 list<short int> input_buffer_2;
 
+// logs of all temporary files created 
+// will delete all files here when not in debug mode
+list<string> temp_file_log;
 
+string output_file_name = "sorted_age.txt";
+
+
+// prints info for user
+void print_header(){
+
+    cout << endl;
+    cout << "to run , provide a valid file. " << endl << endl;
+    cout << "mode: [d] ---- debug mode- keep the tempfiles" << endl;
+    cout << endl;
+    cout << "format : " << endl;
+    cout << "./esort [mode] [input file name] [output file name (Optional)]" << endl;
+    cout << endl << endl;
+
+}
+
+
+
+/***********************************************************************************/
+/**************************************Main*****************************************/
 int main(int argc, char * argv[])
 {
+    string inputfile = argv[argc - 1];
 
-    // 2 static stack for input and output.
+    if(argc == 1 || argv[1][0] == '?'){
+        print_header();
+        exit(0);
+    }
+    else if (argc > 1 && sizeof(argv[1]) == 1 && argv[1][0] == 'd')
+    {
+       mode = DEBUG;
+    }
+
+    // dynamic output file naming
+    if(mode && argc == 3){
+        inputfile = argv[argc - 2];
+        output_file_name = argv[argc - 1];
+    }  
+    else{
+        string name("sorted_");
+        name += argv[argc - 1];
+        output_file_name = name;
+    }
+        
+
+
+    // 2 static stack for input and output filenames
     stack<string> temp_file_names;
     stack<string> temp_file_names_2;
 
-    ifstream source(argv[argc - 1], ifstream::in);
+    ifstream source(inputfile, ifstream::in);
 
-    cout << "Sorting "<< argv[argc - 1] << " ...." << endl;
+    cout << "Sorting "<< argv[argc - 1] << " ......" << endl;
 
     temp_file_names = partition_file_to(source, PAGE_SIZE);
 
-    print_debug(pass_count, 1, temp_file_names.size());
-    cout << argv[argc - 1] << " is split and sorted to " << temp_file_names.size() << " files with " << PAGE_SIZE << " bytes size each." << endl << endl;
+    print_status(pass_count, 1, temp_file_names.size());
 
-    
+    cout << argv[argc - 1]
+         << " is split and sorted to "
+         << temp_file_names.size()
+         << " files with "
+         << PAGE_SIZE
+         << " bytes size each."
+         << endl << endl;
+
 
     cout << "merging files ...." << endl << endl;
     merge(temp_file_names, temp_file_names_2);
@@ -72,7 +131,10 @@ int main(int argc, char * argv[])
 }
 
 
-void print_debug(int pass_id, int buffer_count, int temp_files_count){
+/**************************************************************************************/
+/***********************************implementations************************************/
+
+void print_status(int pass_id, int buffer_count, int temp_files_count){
     cout << "( " << pass_id << ", " << buffer_count << ", " << temp_files_count << " )" << endl;
 }
 
@@ -90,23 +152,32 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
 
     // the last file in the stack is the sorted output file
     if(input_files.size() == 1){
-        rename(input_files.top().c_str(), FINAL_OUTPUT_FILE_NAME);
-        cout << "\nsorting done. \nsorted data saved to: " << FINAL_OUTPUT_FILE_NAME << endl;
+        rename(input_files.top().c_str(), output_file_name.c_str());
+        cout << "\nsorting done. \nsorted data saved to: " << output_file_name << endl;
         input_files.pop();
         return;
     }
 
     string  output_fname;
-   
+    
+    // passes -- each passes takes two files
+    // merge their contents 
+    // input files are taken from input file list
+    // output file are pushed to output file list
     while( input_files.size() > 1){
 
         ofstream output;
         output_fname = get_new_filename();
         output.open(output_fname, ofstream::out | ofstream::trunc);
 
+        // input file 1
         ifstream input_1(input_files.top());
+        temp_file_log.push_back(input_files.top());
         input_files.pop();
+
+        // input file 2
         ifstream input_2(input_files.top());
+        temp_file_log.push_back(input_files.top());
         input_files.pop();
 
         merge_write_to_stream(input_1, input_2, output);
@@ -116,12 +187,15 @@ void merge( stack <string> & input_files, stack <string> & output_files ){
     
     }
 
+    //  a remainder input file is pushed to output files
     if (input_files.size() == 1){
         output_files.push( input_files.top() );
         input_files.pop();
     }
 
-    print_debug(pass_count, 3,output_files.size());
+    print_status(pass_count, 3,output_files.size());
+    
+    delete_temp_files(mode);
 
     merge(output_files, input_files); // recursively call merge
 }
@@ -298,7 +372,7 @@ stack<string> partition_file_to(ifstream &source, int bytes_count )
 {
 
     string filename(""); 
-   // ofstream output("temp_ ", ofstream::out | ofstream::tr);
+    // ofstream output("temp_ ", ofstream::out | ofstream::tr);
     list<short> data;
     stack <string> temp_file_names;
 
@@ -320,4 +394,13 @@ stack<string> partition_file_to(ifstream &source, int bytes_count )
 
     return temp_file_names;
 
+}
+
+void delete_temp_files(bool _mode){
+    while (_mode != DEBUG && !temp_file_log.empty())
+    {
+        string file = temp_file_log.back();
+        temp_file_log.pop_back();
+        remove(file.c_str());
+    }
 }
