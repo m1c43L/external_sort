@@ -15,7 +15,7 @@ using namespace std;
 #define PAGE_SIZE 4096          // 4kb
 #define MAX_DIGIT 3             // # of max digit - 100 being max value
 #define TEMP_FILE_NAME "temp"   // default temporary filename
-#define DEBUG false
+#define DEBUG true
 
 
 
@@ -70,7 +70,13 @@ void print_header(){
 
 }
 
-
+int get_size(char * str){
+    int count = 0;
+    while(str[count]){
+        count++;
+    }
+    return count;
+}
 
 /***********************************************************************************/
 /**************************************Main*****************************************/
@@ -78,21 +84,23 @@ int main(int argc, char * argv[])
 {
     string inputfile = argv[argc - 1];
 
-    if(argc == 1 || argv[1][0] == '?'){
+    if (argc == 1 || argv[1][0] == '?')
+    {
         print_header();
         exit(0);
     }
-    else if (argc > 1 && sizeof(argv[1]) == 1 && argv[1][0] == 'd')
+    else if (argc > 1 && get_size(argv[1]) == 1 && argv[1][0] == 'd')
     {
        mode = DEBUG;
+       cout << "Debug mode: keeping temp_files" << endl;
     }
 
     // dynamic output file naming
-    if(mode && argc == 3){
+    if ((mode && argc == 4) || (!mode && argc == 3))
+    {
         inputfile = argv[argc - 2];
         output_file_name = argv[argc - 1];
-    }  
-    else{
+    }else{
         string name("sorted_");
         name += argv[argc - 1];
         output_file_name = name;
@@ -244,6 +252,9 @@ bool parse(ifstream &input, list <short> & buffer, int page_size){
 
         }else{
             cout << "Input Error: invalid input character" << endl;
+            cout << "make sure the input only contains digits and commas" << endl;
+            exit(-1);
+
         }
     }
 
